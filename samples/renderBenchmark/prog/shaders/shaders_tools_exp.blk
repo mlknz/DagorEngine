@@ -7,13 +7,12 @@ outMiniDumpName:t="../../tools/common/compiledShaders/tools.exp"
 source
 {
   includePath:t="./source"
-  include "../../../../prog/samples/commonShaders/shadersList.blk"
   file:t = "testMat.dshl"
   file:t = "testTree.dshl"
   file:t = "testMatAO.dshl"
-  //file:t = "./source/heightmap.dshl"
-  //file:t = "./source/layered.dshl"
-  file:t = "./source/sponza.dshl"
+  file:t = "./source/heightmap.dshl"
 }
 
 "@delete:explicit_var_ref" {}
+
+"@override:common_assume_static" { "@override:in_editor_assume":i=1; }

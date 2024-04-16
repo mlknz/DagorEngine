@@ -1,5 +1,5 @@
 shader_root_dir:t="."
-outDumpName:t="../../game/compiledShaders/gameSpirV"
+outDumpName:t="../../game/compiledShaders/ios/gameMTL"
 
 include common_inc_dirs.blk
 source
@@ -18,7 +18,7 @@ common_assume_static { in_editor_assume:i=0; }
 
 Compile
 {
-  fsh:t = SpirV-4.0
+  fsh:t = Metal
   assume_static {
     shore_waves_on:i= 0
     water_foam_tex:i = 0
@@ -30,7 +30,7 @@ Compile
     ssao_quality:i = 0
     blur_quality:i = 0
     hero_ao:i = 0
-    num_of_cascades:i=4
+    num_of_cascades:i=2
     compatibility_mode:i = 0
     mobile_render:i=0
     use_postfx:i = 1

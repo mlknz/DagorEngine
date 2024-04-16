@@ -5,3 +5,4 @@
   ref:t=shadow_cascade_tc_mul_offset_const_no
   ref:t=ssaoProjInfo
   ref:t=heightmap_scale_offset
+  ref:t=perlin_noise

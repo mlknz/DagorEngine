@@ -1,16 +1,9 @@
 include "shaders_dx11.blk"
-"@delete-all:packBin":b=false; packBin:b=yes
-
-"@override:source"
-{
-  file:t = "depth_hierarchy.dshl"
-}
 
 "@override:outDumpName":t="../../game/compiledShaders/gameDX12"
 "@override:Compile" {
   "@override:fsh":t="5.0"
-  "@override:assume_vars" {
-    "@delete:render_inline_raytracing":i=0
-     gi_voxelize_use_multidraw:i=1
+  "@override:assume_static" {
+    "@override:is_gather4_supported":i=1
   }
 }

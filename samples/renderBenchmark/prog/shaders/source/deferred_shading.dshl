@@ -2,8 +2,6 @@ include "sky_shader_global.dshl"
 include "pbr.dshl"
 include "gbuffer.dshl"
 include "monteCarlo.dshl"
-include "roughToMip.dshl"
-//include "skyLight.dshl"
 include "ssao_use.dshl"
 include "tile_lighting.dshl"
 include "punctualLights.dshl"
@@ -19,7 +17,7 @@ hlsl(ps) {
 //#define PREFER_ANALYTIC_TRANSMITTANCE 1
 }
 include "clouds_vars.dshl"
-include "clouds_shadow.dshl"
+include "sq_clouds_shadow.dshl"
 int shadow_cascade_tm_const_no = 28;
 int shadow_cascade_tc_mul_offset_const_no = 46;
 
@@ -27,25 +25,22 @@ float4 light_probe_pos = (0,0,0,0);
 
 macro INIT_SUN_LIGHT()
   (ps) {
-    to_sun_direction@f3 = (-from_sun_direction.x, -from_sun_direction.y, -from_sun_direction.z, 0.0)
+    from_sun_direction@f3 = from_sun_direction;
     sun_light_color@f3 = sun_light_color;
+  }
+  hlsl (ps) {
+    #define to_sun_direction (-from_sun_direction)
   }
 endmacro
 
 texture near_depth;
 texture far_depth;
 
-shader deferred_shadow_to_buffer
+shader deferred_shading
 {
   no_ablend;
-  channel float2 pos = pos;
   INIT_USE_SSR()
   USE_SSR()
-
-  (vs) {
-    globtm@f44 = globtm;
-    lowres_rt_params@f4 = (lowres_rt_params.x, lowres_rt_params.y, 1./lowres_rt_params.x, 1./lowres_rt_params.y);
-  }
 
   cull_mode = none;
   z_write = false;
@@ -63,21 +58,20 @@ shader deferred_shadow_to_buffer
 
   INIT_SSAO()
   USE_SSAO()
-
+  (vs) {
+    globtm@f44 = globtm;
+    lowres_rt_params@f4 = (lowres_rt_params.x, lowres_rt_params.y, 1./lowres_rt_params.x, 1./lowres_rt_params.y);
+  }
   USE_AND_INIT_VIEW_VEC_VS()
+  USE_POSTFX_VERTEX_POSITIONS()
   hlsl(vs) {
-    struct VsInput
-    {
-      float2 pos        : POSITION;
-    };
-
-
-    VsOutput deferred_shading_vs(VsInput input)
+    VsOutput deferred_shading_vs(uint vertex_id : SV_VertexID)
     {
       VsOutput output;
-      output.pos = float4(input.pos.xy, 1, 1);
-      output.texcoord = input.pos * float2(0.5, -0.5) + float2(0.500001, 0.500001);
-      output.viewVect = input.pos.y > 0 ? (input.pos.x < 0 ? view_vecLT : view_vecRT) : (input.pos.x < 0 ? view_vecLB : view_vecRB);
+      float2 pos = getPostfxVertexPositionById(vertex_id);
+      output.pos = float4(pos.xy, 1, 1);
+      output.texcoord = screen_to_texcoords(pos);
+      output.viewVect = get_view_vec_by_vertex_id(vertex_id);
 
       return output;
     }
@@ -86,7 +80,6 @@ shader deferred_shadow_to_buffer
   INIT_READ_DEPTH_GBUFFER()
   USE_READ_DEPTH_GBUFFER()
   (ps) { world_view_pos@f3 = world_view_pos; }
-
 
   STANDARD_BRDF_SHADING()
   INIT_READ_GBUFFER()
@@ -102,14 +95,14 @@ shader deferred_shadow_to_buffer
   ONE_POINT_LIGHT()
 
   BRUNETON_FOG()
-  INIT_CLOUDS_SHADOW(to_sun_direction.y)
-  USE_CLOUDS_SHADOW()
+  SQ_INIT_CLOUDS_SHADOW()
+  SQ_CLOUDS_SHADOW()
 
   hlsl(ps) {
     half4 deferred_shading_ps(VsOutput input) : SV_Target
     {
-      float rawDepth = tex2Dlod(depth_gbuf, float4(input.texcoord,0,0)).x;
-
+      float rawDepth = readGbufferDepth(input.texcoord);
+  
       BRANCH
       if (rawDepth <= 0)
       {
@@ -129,7 +122,7 @@ shader deferred_shadow_to_buffer
       float4 worldPos = float4(world_view_pos - pointToEye, 1);
       ProcessedGbuffer gbuffer = readProcessedGbuffer(input.texcoord);
       half translucencyStrength = gbuffer.translucency;
-      half4 ssrReflections = getSSR(gbuffer.roughness, input.texcoord);
+      half4 ssrReflections = getSSR(gbuffer.linearRoughness, input.texcoord);
       half enviSSR = 1-ssrReflections.a;
 
       /*float porosity, puddle_amount;
@@ -137,7 +130,7 @@ shader deferred_shadow_to_buffer
       float wetness = saturate(gbuffer.normal.y*10 - 8) * puddle_amount;
       //wetness = 1-pow2(1-wetness);
       float water_amount = saturate((wetness+rain_params.z)*rain_params.w);
-      
+
       gbuffer.specularColor = lerp(gbuffer.specularColor, 0.05, water_amount);
 
       porosity = lerp(1, saturate(1-wetness), gbuffer.roughness);
@@ -157,11 +150,11 @@ shader deferred_shadow_to_buffer
       float NdotV = dot(gbuffer.normal, view);
       float3 reflectionVec = 2 * NdotV * gbuffer.normal - view;
       float NoV = abs( NdotV ) + 1e-5;
-      float alpha = pow2(gbuffer.roughness);
+      float alpha = pow2(gbuffer.linearRoughness);
 
       half finalAO = gbuffer.ao*ssao;
       half finalAOForSpecular = min(gbuffer.ao, gbuffer.extracted_albedo_ao*0.5+0.5)*ssao;//
-      half specularAOcclusion = computeSpecOcclusion(NoV, finalAOForSpecular, gbuffer.roughness);// dice spec occlusion
+      half specularAOcclusion = computeSpecOcclusion(NoV, finalAOForSpecular, alpha);// dice spec occlusion
 
       //half ssaoToSun = saturate(ssao*0.5+0.5);
       //half finalSunAO = gbuffer.ao*ssaoToSun;
@@ -179,17 +172,12 @@ shader deferred_shadow_to_buffer
       BRANCH
       if (NoL>0)
       {
-        half shadow = get_csm_shadow(pointToEye, w).x*clouds_shadow(worldPos.xyz);
+        half shadow = get_csm_shadow(pointToEye, w, 1.f)*clouds_shadow(worldPos.xyz);
         half shadowTerm = shadow;
-        shadowTerm = 1;
 
         BRANCH
         if (shadowTerm > 0)
-        {
-          half specularStrength = 1.0f;
-          result = standardBRDF( NoV, NoL, gbuffer.diffuseColor, gbuffer.roughness, gbuffer.linearRoughness, enviSSR*specularColor, specularStrength, lightDir, view, gbuffer.normal)*shadowTerm*lightColor;
-        }
-      return result.rgbr;
+          result = standardBRDF( NoV, NoL, gbuffer.diffuseColor, alpha, gbuffer.linearRoughness, enviSSR*specularColor, gbuffer.extracted_albedo_ao, lightDir, view, gbuffer.normal)*shadowTerm*lightColor;
       }
 
       BRANCH
@@ -223,10 +211,10 @@ shader deferred_shadow_to_buffer
       if (gbuffer.material == SHADING_FOLIAGE)
       {
         specularColor*=0.5;
-        gbuffer.roughness = lerp(gbuffer.roughness, 1, 0.5);
+        gbuffer.linearRoughness = lerp(gbuffer.linearRoughness, 1, 0.5);
       }
-      half3 enviBRDF = EnvBRDFApprox(specularColor, gbuffer.roughness, NoV);
-      half3 environmentAmbientReflection = getSkyReflection(gbuffer.roughness, roughR, NoV, enviBRDF);
+      half3 enviBRDF = EnvBRDFApprox(specularColor, gbuffer.linearRoughness, NoV);
+      half3 environmentAmbientReflection = getSkyReflection(gbuffer.linearRoughness, roughR, NoV, enviBRDF);
       environmentAmbientReflection.rgb *= geometryFactor;
       //return distToIntersect > 0 ? environmentAmbientReflection.rgbr : 0;
 
@@ -253,7 +241,8 @@ shader deferred_shadow_to_buffer
       //result = sun_light_color*(NoL/PI)*gbuffer.diffuseColor;
       //return half4(result, 1);
 
-      apply_bruneton_fog(-view, distToGround, result);
+      apply_scattering_tc_fog(input.texcoord, -view, distToGround, result);
+      //apply_bruneton_fog(-view, distToGround, result);
       return half4(result,1);
     }
   }
@@ -264,8 +253,6 @@ shader deferred_shadow_to_buffer
 shader cube_deferred_shading
 {
   no_ablend;
-  channel float2 pos = pos;
-  channel float3 tc[0] = tc[0];
 
   
 
@@ -282,21 +269,16 @@ shader cube_deferred_shading
   }
   INIT_ZNZFAR()
   USE_AND_INIT_INV_GLOBTM_PS()
-  DECL_POSTFX_TC_VS_RT()
+  USE_POSTFX_VERTEX_POSITIONS()
 
   hlsl(vs) {
 
-    struct VsInput
-    {
-      float2 pos        : POSITION;
-    };
-
-
-    VsOutput deferred_shading_vs(VsInput input)
+    VsOutput deferred_shading_vs(uint vertexId : SV_VertexID)
     {
       VsOutput output;
-      output.pos = float4(input.pos.xy, 1, 1);
-      output.texcoord = input.pos * float2(0.5, -0.5) + float2(0.50000, 0.50000);
+      float2 pos = getPostfxVertexPositionById(vertexId);
+      output.pos = float4(pos.xy, 1, 1);
+      output.texcoord = screen_to_texcoords(pos);
       return output;
     }
   }
@@ -306,7 +288,7 @@ shader cube_deferred_shading
   }
   INIT_READ_DEPTH_GBUFFER()
   USE_READ_DEPTH_GBUFFER()
-  (ps) { world_view_pos@f3 = world_view_pos; }
+  (ps){ world_view_pos@f3 = world_view_pos; }
 
   STANDARD_BRDF_SHADING()
   INIT_READ_GBUFFER()
@@ -317,13 +299,13 @@ shader cube_deferred_shading
   USE_SKY()
   INIT_SUN_LIGHT()
   BRUNETON_FOG()
-  INIT_CLOUDS_SHADOW(to_sun_direction.y)
-  USE_CLOUDS_SHADOW()
+  SQ_INIT_CLOUDS_SHADOW()
+  SQ_CLOUDS_SHADOW()
 
   hlsl(ps) {
     half4 deferred_shading_ps(VsOutput input) : SV_Target
     {
-      float rawDepth = tex2Dlod(depth_gbuf, float4(input.texcoord,0,0)).x;
+      float rawDepth = readGbufferDepth(input.texcoord);
       BRANCH
       if (rawDepth <= 0)
         return 0;
@@ -355,9 +337,9 @@ shader cube_deferred_shading
       float NdotV = dot(gbuffer.normal, view);
       float3 reflectionVec = 2 * NdotV * gbuffer.normal - view;
       float NoV = abs( NdotV ) + 1e-5;
-      float alpha = pow2(gbuffer.roughness);
+      float alpha = pow2(gbuffer.linearRoughness);
       //todo: replace metallic surfaces with albedo of their specular value
-      
+
       half finalSunAO = gbuffer.ao;
       half3 specularColor = gbuffer.specularColor;
       gbuffer.diffuseColor = lerp(gbuffer.diffuseColor, gbuffer.specularColor, gbuffer.metallness);
@@ -369,8 +351,7 @@ shader cube_deferred_shading
 
       float NoL = dot(gbuffer.normal, lightDir);
 
-      half specularStrength = 1.0f;
-      half3 result = standardBRDF( NoV, saturate(NoL), gbuffer.diffuseColor, gbuffer.roughness, gbuffer.linearRoughness, 0, specularStrength, lightDir, view, gbuffer.normal)*lightColor;
+      half3 result = standardBRDF( NoV, saturate(NoL), gbuffer.diffuseColor, alpha, gbuffer.linearRoughness, 0, 0, lightDir, view, gbuffer.normal)*lightColor;
       result *= clouds_shadow(worldPos.xyz);
 
       if (gbuffer.material == SHADING_FOLIAGE)
@@ -400,7 +381,7 @@ shader cube_deferred_shading
         environmentAmbientLighting += GetSkySHDiffuse(-gbuffer.normal)*gbuffer.translucencyColor;
 
       result += environmentAmbientLighting*finalAO;
-      apply_bruneton_fog(-view, dist, result);
+      apply_bruneton_fog(-view, dist, result.rgb);
 
       return half4(max(0, result),1);
     }
@@ -409,4 +390,59 @@ shader cube_deferred_shading
   compile("target_ps", "deferred_shading_ps");
 }
 
+texture water_reflection_tex_temp;
 
+shader clip_water_reflection
+{
+  cull_mode = none;
+  z_test = false;
+  z_write = false;
+
+  dynamic float4 texsz_consts = (0.0, 0.0, 0.5, 0.5);
+  dynamic float4 dir_level = (0, 0, 0, 0);
+
+  hlsl {
+    struct VsOutput
+    {
+      VS_OUT_POSITION(pos)
+      float2 texcoord : TEXCOORD0;
+    };
+  }
+
+  (vs) {
+    texsz_consts@f4 = texsz_consts;
+  }
+
+  USE_POSTFX_VERTEX_POSITIONS()
+  USE_AND_INIT_VIEW_VEC_VS()
+
+  hlsl(vs) {
+    VsOutput clip_water_reflection_vs(uint vertex_id : SV_VertexID)
+    {
+      VsOutput output;
+      float2 pos = getPostfxVertexPositionById(vertex_id);
+      output.pos = float4(pos.x, pos.y, 1, 1);
+      output.texcoord = screen_to_texcoords(pos);
+      output.pos.y = -output.pos.y;
+      return output;
+    }
+  }
+
+  (ps) {
+    sourceTex@smp2d = water_reflection_tex_temp;
+    texsz_consts@f4 = texsz_consts;
+    dir_level@f4 = dir_level;
+  }
+
+  hlsl(ps) {
+
+    half4 clip_water_reflection_ps(VsOutput input) : SV_Target
+    {
+      half4 result = tex2D(sourceTex, input.texcoord);
+      return result;
+    }
+  }
+
+  compile("target_vs", "clip_water_reflection_vs");
+  compile("target_ps", "clip_water_reflection_ps");
+}
