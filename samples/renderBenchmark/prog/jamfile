@@ -43,6 +43,7 @@ Sources =
 #  perlinNoise.cpp
   test_app.cpp
   test_main.cpp
+  common/renderBenchmark.cpp
 ;
 
 UseProgLibs =

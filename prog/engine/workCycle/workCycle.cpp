@@ -30,6 +30,7 @@
 #include "workCyclePriv.h"
 #include <workCycle/dag_workCyclePerf.h>
 #include <perfMon/dag_statDrv.h>
+#include <perfMon/dag_daProfiler.h>
 #include <perfMon/dag_cachesim.h>
 #include <shaders/dag_shaders.h>
 
@@ -57,6 +58,8 @@ void workcycleperf::enable_debug(bool on) { perf_debug_req_on = on; }
 CONSOLE_INT_VAL("render", pix_capture_n_frames, 0, 0, 50);
 #endif
 #endif
+
+uint64_t workcycleperf::frame_time_total_swap = 0;
 
 static bool updatescr_done = true;
 static real min_fps = 0, max_fps = 0, last_fps = 0;
@@ -99,6 +102,10 @@ void dagor_work_cycle()
   lowlatency::start_frame();
   AutoDepthCounter acntr;
   TIME_PROFILER_TICK((dagor_workcycle_depth == 1)); // Do not switch profiler from nested workcycle.
+
+  // da_profiler::eRenderBenchmarkEventType::BenchmarkCPUFrameTime
+  BENCHMARK_SCOPED_TIME(0);
+
   ScopedCacheSim cachesim;
 
   // perform delayed actions
@@ -371,6 +378,8 @@ void dagor_suppress_d3d_update(bool enable) { suppress_d3d_update = enable; }
 static void act()
 {
   TIME_PROFILE(act);
+  // da_profiler::eRenderBenchmarkEventType::BenchmarkCPUAct
+  BENCHMARK_SCOPED_TIME(1);
 
   {
     TIME_PROFILE(update_input_devices);
@@ -504,6 +513,8 @@ static void draw(bool enable_stereo, int elapsed_usec, float gametime_elapsed, b
   if (call_before_render && drawScene && game_scene)
   {
     TIME_D3D_PROFILE(beforeDraw);
+    // da_profiler::eRenderBenchmarkEventType::BenchmarkCPUBeforeDraw
+    BENCHMARK_SCOPED_TIME(2);
     game_scene->beforeDrawScene(elapsed_usec, gametime_elapsed);
 
     if (secondary_game_scene)
@@ -530,6 +541,8 @@ static void draw(bool enable_stereo, int elapsed_usec, float gametime_elapsed, b
   present_start_t = workcycleperf::get_frame_timepos_usec();
 
   TIME_D3D_PROFILE(drawScene);
+  // da_profiler::eRenderBenchmarkEventType::BenchmarkCPUDraw
+  BENCHMARK_SCOPED_TIME(3);
   if (drawScene)
   {
     if (::grs_draw_wire)
@@ -633,6 +646,7 @@ void workcycle_internal::default_on_swap_callback()
   static unsigned sumFrameTime = 0, minFrameTime = 100000000U, maxFrameTime = 0, fpsNum = 0;
 
   unsigned frameTime = get_time_usec(lastSwapTime);
+  interlocked_release_store(workcycleperf::frame_time_total_swap, frameTime); // store?
   lastSwapTime = ref_time_ticks();
 
   dagor_frame_no_increment();

@@ -23,6 +23,7 @@
 #include <3d/dag_picMgr.h>
 
 #include "test_main.h"
+#include "common/renderBenchmark.h"
 #include <startup/dag_inpDevClsDrv.h>
 #include <startup/dag_globalSettings.h>
 #include <humanInput/dag_hiGlobals.h>
@@ -570,6 +571,7 @@ public:
 
   ~DemoGameScene()
   {
+    delete renderBenchmark;
     ShaderGlobal::reset_from_vars(perlinTexId);
     release_managed_tex(perlinTexId);
     ShaderGlobal::reset_from_vars(waterFoamTexId);
@@ -608,6 +610,13 @@ public:
   virtual void actScene()
   {
     samplebenchmark::quitIfBenchmarkHasEnded();
+
+    if (renderBenchmark)
+    {
+      renderBenchmark->update();
+      renderBenchmark->quitIfBenchmarkHasEnded();
+    }
+
     webui::update();
 
     static String lastExportName;
@@ -1911,6 +1920,7 @@ public:
 
 protected:
   DynamicRenderableSceneInstance *test;
+  RenderBenchmark *renderBenchmark = nullptr;
 
   bool unloaded_splash;
 
@@ -2156,6 +2166,13 @@ protected:
       quit_game(1);
       return;
     });
+
+    RenderBenchmarkConfig rbConfig = {};
+    rbConfig.isFreeCamera = false;
+    rbConfig.workingTimeDebugMS = 5000;
+
+    renderBenchmark = new RenderBenchmark(rbConfig);
+    renderBenchmark->startBenchmark();
 
     createSpheres();
     ddsx::tex_pack2_perform_delayed_data_loading(); // or it will crash here

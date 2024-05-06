@@ -193,7 +193,7 @@ int DagorWinMain(int nCmdShow, bool /*debugmode*/)
   }
 
 #if _TARGET_PC
-  ::win32_set_window_title("SkiesSample");
+  ::win32_set_window_title("RenderBenchmark");
 #endif
   game_demo_init();
 

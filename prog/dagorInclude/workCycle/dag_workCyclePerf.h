@@ -14,6 +14,7 @@ namespace workcycleperf
 //! read-only values
 extern bool debug_on;
 extern int64_t ref_frame_start;
+extern uint64_t frame_time_total_swap;
 
 //! debug mode enable/disable; takes effect at start of every frame
 void enable_debug(bool on);
