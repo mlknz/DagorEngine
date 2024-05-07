@@ -30,6 +30,7 @@
 #include "workCyclePriv.h"
 #include <workCycle/dag_workCyclePerf.h>
 #include <perfMon/dag_statDrv.h>
+#include <perfMon/dag_graphStat.h>
 #include <perfMon/dag_daProfiler.h>
 #include <perfMon/dag_cachesim.h>
 #include <shaders/dag_shaders.h>
@@ -100,6 +101,8 @@ void dagor_work_cycle()
 {
   workcycleperf::mark_cpu_only_cycle_start();
   lowlatency::start_frame();
+  Stat3D::clear(); // clear each frame
+
   AutoDepthCounter acntr;
   TIME_PROFILER_TICK((dagor_workcycle_depth == 1)); // Do not switch profiler from nested workcycle.
 

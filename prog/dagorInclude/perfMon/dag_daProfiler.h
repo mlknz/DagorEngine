@@ -56,6 +56,13 @@ struct BenchmarkFrameData
   float frameTimeCPUAct;
   float frameTimeCPUBeforeDraw;
   float frameTimeCPUDraw;
+  uint32_t drawPrimsCount;
+  uint32_t trianglesCount;
+  uint32_t updateLockVIBufCount;
+  uint32_t updateRenderTargetCount;
+  uint32_t updateShaderProgramCount;
+  uint32_t drawInstancesCount;
+  uint32_t updateLogicalRenderPassesCount;
 };
 using BenchmarkData = std::vector<BenchmarkFrameData>; // todo: refactor (realloc)
 

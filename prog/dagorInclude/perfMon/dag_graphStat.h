@@ -37,6 +37,7 @@ inline void updateRenderTarget() { g_draw_stat.updateRenderTarget(); }
 inline void updateProgram() { g_draw_stat.updateProgram(); }
 inline void updateInstances(int inst) { g_draw_stat.updateInstances(inst); }
 inline void updateLogicalRenderPass() { g_draw_stat.updateLogicalRenderPass(); }
+inline void clear() { g_draw_stat.clear(); }
 
 #else
 
@@ -51,6 +52,7 @@ inline void updateRenderTarget() {}
 inline void updateProgram() {}
 inline void updateInstances(int) {}
 inline void updateLogicalRenderPass() {}
+inline void clear() {}
 
 #endif
 

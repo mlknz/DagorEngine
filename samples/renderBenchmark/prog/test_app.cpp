@@ -611,12 +611,6 @@ public:
   {
     samplebenchmark::quitIfBenchmarkHasEnded();
 
-    if (renderBenchmark)
-    {
-      renderBenchmark->update();
-      renderBenchmark->quitIfBenchmarkHasEnded();
-    }
-
     webui::update();
 
     static String lastExportName;
@@ -790,6 +784,16 @@ public:
 
     if (sleep_msec_val.get())
       sleep_msec(sleep_msec_val.get());
+  }
+
+  virtual void afterPresent()
+  {
+    // NOTE: it is important to update benchmark values in the very end of workcycle.
+    if (renderBenchmark)
+    {
+        renderBenchmark->update();
+        renderBenchmark->quitIfBenchmarkHasEnded();
+    }
   }
 
   virtual void drawScene()
