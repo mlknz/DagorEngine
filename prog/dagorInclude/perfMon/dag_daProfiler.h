@@ -19,6 +19,7 @@
 #endif
 
 #include <perfMon/dag_daProfilerToken.h>
+#include <vector>
 
 namespace da_profiler
 {
@@ -41,6 +42,32 @@ enum class RegisterThreadResult
   AlreadyRegistered,
   Registered
 };
+enum class eRenderBenchmarkEventType {
+  BenchmarkCPUFrameTime = 0,
+  BenchmarkCPUAct = 1,
+  BenchmarkCPUBeforeDraw = 2,
+  BenchmarkCPUDraw = 3,
+};
+
+struct BenchmarkFrameData
+{
+  float frameTimeCPUTotalFlipCallback;
+  float frameTimeCPUMainCycle;
+  float frameTimeCPUAct;
+  float frameTimeCPUBeforeDraw;
+  float frameTimeCPUDraw;
+  uint32_t drawPrimsCount;
+  uint32_t trianglesCount;
+  uint32_t updateLockVIBufCount;
+  uint32_t updateRenderTargetCount;
+  uint32_t updateShaderProgramCount;
+  uint32_t drawInstancesCount;
+  uint32_t updateLogicalRenderPassesCount;
+};
+using BenchmarkData = std::vector<BenchmarkFrameData>; // todo: refactor (realloc)
+
+BenchmarkData& GetBenchmarkData();
+
 struct EventData;
 struct GpuEventData;
 struct ThreadStorage;
@@ -153,6 +180,10 @@ DA_STUB bool stop_file_dump_server(const char *) { return false; }
 DA_STUB void shutdown() {}
 DA_STUB void tick_frame() {}
 DA_STUB void create_leaf_event_raw(desc_id_t, uint64_t, uint64_t) {}
+
+DA_STUB EventData *start_benchmark_event(eRenderBenchmarkEventType eType) { return nullptr; };
+DA_STUB void end_benchmark_event(EventData &, eRenderBenchmarkEventType eType) { return; };
+
 DA_STUB EventData *start_event(desc_id_t, ThreadStorage *&) { return nullptr; }
 DA_STUB void end_event(EventData &, ThreadStorage &) {}
 DA_STUB GpuEventData *start_gpu_event(desc_id_t, const char *) { return nullptr; }
@@ -341,6 +372,28 @@ inline void create_leaf_event(desc_id_t description, uint64_t start, uint64_t en
   if ((get_active_mode() & EVENTS))
     create_leaf_event_raw(description, start, end);
 }
+
+DA_API EventData* start_benchmark_event(eRenderBenchmarkEventType eType);
+DA_API void end_benchmark_event(EventData &, eRenderBenchmarkEventType eType);
+
+// //////////////////////////////////////////
+
+struct RenderBenchmarkScopedEvent
+{
+  RenderBenchmarkScopedEvent(int eTypeInt) : eventType(static_cast<da_profiler::eRenderBenchmarkEventType>(eTypeInt))
+  , e(start_benchmark_event(eventType))
+  {
+  }
+  ~RenderBenchmarkScopedEvent() { if (e) {end_benchmark_event(*e, eventType); } }
+
+  da_profiler::eRenderBenchmarkEventType eventType;
+  EventData *e;
+};
+
+#define BENCHMARK_SCOPED_TIME(LabelType) ::da_profiler::RenderBenchmarkScopedEvent myBenchmarkEventCollisionNames(LabelType)
+
+// //////////////////////////////////////////
+
 DA_API EventData *start_event(desc_id_t description, ThreadStorage *&);
 DA_API void end_event(EventData &, ThreadStorage &);
 DA_API GpuEventData *start_gpu_event(desc_id_t description, const char *d3d_event_name);

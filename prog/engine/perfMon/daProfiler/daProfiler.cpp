@@ -629,6 +629,36 @@ void add_short_string_tag(desc_id_t description, const char *fmt, const TagSingl
   return the_profiler.addTag(description, fmt, a, ac);
 }
 
+EventData *start_benchmark_event(eRenderBenchmarkEventType eType)
+{
+  EventData *e = new EventData{~0ull, ~0ull, static_cast<int>(eType), 1}; // todo: use storage allocate or smth
+  u64_interlocked_relaxed_store(e->start, cpu_current_ticks());
+
+  return e;
+}
+
+BenchmarkData benchmarkData;
+
+BenchmarkData& GetBenchmarkData() { return benchmarkData; }
+
+void end_benchmark_event(EventData &event, eRenderBenchmarkEventType eType)
+{
+  const uint64_t end = cpu_current_ticks();
+  const uint64_t ticksPassed = end - event.start;
+  const double ticksToMsec = 1000. / cpu_frequency();
+  const float timePassed = float(double(ticksPassed) * ticksToMsec);
+
+  switch (eType)
+  {
+    case eRenderBenchmarkEventType::BenchmarkCPUFrameTime: benchmarkData.back().frameTimeCPUMainCycle = timePassed; break;
+    case eRenderBenchmarkEventType::BenchmarkCPUAct: benchmarkData.back().frameTimeCPUAct = timePassed; break;
+    case eRenderBenchmarkEventType::BenchmarkCPUBeforeDraw: benchmarkData.back().frameTimeCPUBeforeDraw = timePassed; break;
+    case eRenderBenchmarkEventType::BenchmarkCPUDraw: benchmarkData.back().frameTimeCPUDraw = timePassed; break;
+  }
+
+  delete &event; // oh man we gotta write some codes here...
+}
+
 EventData *start_event(desc_id_t description, ThreadStorage *&storage) { return the_profiler.startEvent(description, storage); }
 void end_event(EventData &e, ThreadStorage &storage) { the_profiler.endEvent(e, storage); }
 void create_leaf_event_raw(desc_id_t description, uint64_t start, uint64_t end) { the_profiler.addLeafEvent(description, start, end); }
@@ -640,7 +670,11 @@ GpuEventData *start_gpu_event(desc_id_t description, const char *d3d_event_name)
 
 void end_gpu_event(GpuEventData &e) { the_profiler.endGPUEvent(e); }
 
-void tick_frame() { the_profiler.addFrame(); }
+void tick_frame()
+{
+  the_profiler.addFrame();
+  benchmarkData.emplace_back(); // todo: fix this prototype stuff
+}
 void shutdown() { the_profiler.shutdown(true); }
 
 void set_sampling_parameters(uint32_t sampling_rate_freq, uint32_t sampling_spike_rate_freq, uint32_t threads_sampling_rate_mul)
